@@ -35,6 +35,11 @@ test("contains all eight wind directions and both win conditions", async () => {
   ]);
 
   assert.equal((page.match(/id: "/g) ?? []).length, 8);
+  assert.match(page, /Array\(width \* height\)/);
+  assert.match(page, /id="board-width"/);
+  assert.match(page, /id="board-height"/);
+  assert.match(page, /gridTemplateRows/);
+  assert.match(page, /className="compass-arrow"/);
   assert.match(page, /remaining === 0/);
   assert.match(page, /nextUsed\.length === DIRECTIONS\.length/);
   assert.match(layout, /lang="ru"/);

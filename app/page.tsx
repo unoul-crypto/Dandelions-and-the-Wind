@@ -28,11 +28,28 @@ const DIRECTIONS: Direction[] = [
   { id: "se", label: "Юго-восток", short: "ЮВ", arrow: "↘", row: 3, column: 3, dr: 1, dc: 1 },
 ];
 
-const createBoard = (size: number): Cell[] => Array(size * size).fill("empty");
+const DIRECTION_ANGLES: Record<string, number> = {
+  n: 0,
+  ne: 45,
+  e: 90,
+  se: 135,
+  s: 180,
+  sw: 225,
+  w: 270,
+  nw: 315,
+};
+
+const clampDimension = (value: number, fallback = 7) =>
+  Math.min(20, Math.max(3, Math.round(value || fallback)));
+
+const createBoard = (width: number, height: number): Cell[] =>
+  Array(width * height).fill("empty");
 
 export default function Home() {
-  const [sizeInput, setSizeInput] = useState(7);
-  const [size, setSize] = useState<number | null>(null);
+  const [widthInput, setWidthInput] = useState(7);
+  const [heightInput, setHeightInput] = useState(7);
+  const [width, setWidth] = useState<number | null>(null);
+  const [height, setHeight] = useState<number | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [turn, setTurn] = useState<Turn>("dandelion");
   const [usedDirections, setUsedDirections] = useState<string[]>([]);
@@ -43,11 +60,14 @@ export default function Home() {
   const flowerCount = useMemo(() => cells.filter((cell) => cell === "flower").length, [cells]);
   const seedCount = cells.length - emptyCount - flowerCount;
 
-  function startGame(nextSize = sizeInput) {
-    const safeSize = Math.min(20, Math.max(3, Math.round(nextSize || 7)));
-    setSizeInput(safeSize);
-    setSize(safeSize);
-    setCells(createBoard(safeSize));
+  function startGame(nextWidth = widthInput, nextHeight = heightInput) {
+    const safeWidth = clampDimension(nextWidth);
+    const safeHeight = clampDimension(nextHeight);
+    setWidthInput(safeWidth);
+    setHeightInput(safeHeight);
+    setWidth(safeWidth);
+    setHeight(safeHeight);
+    setCells(createBoard(safeWidth, safeHeight));
     setTurn("dandelion");
     setUsedDirections([]);
     setWinner(null);
@@ -55,7 +75,7 @@ export default function Home() {
   }
 
   function plant(index: number) {
-    if (!size || winner || turn !== "dandelion" || cells[index] !== "empty") return;
+    if (!width || !height || winner || turn !== "dandelion" || cells[index] !== "empty") return;
 
     const next = [...cells];
     next[index] = "flower";
@@ -73,7 +93,7 @@ export default function Home() {
   }
 
   function blow(direction: Direction) {
-    if (!size || winner || turn !== "wind" || usedDirections.includes(direction.id)) return;
+    if (!width || !height || winner || turn !== "wind" || usedDirections.includes(direction.id)) return;
 
     const next = [...cells];
     const flowers = cells
@@ -81,11 +101,11 @@ export default function Home() {
       .filter((index) => index >= 0);
 
     for (const index of flowers) {
-      let row = Math.floor(index / size) + direction.dr;
-      let column = (index % size) + direction.dc;
+      let row = Math.floor(index / width) + direction.dr;
+      let column = (index % width) + direction.dc;
 
-      while (row >= 0 && row < size && column >= 0 && column < size) {
-        const target = row * size + column;
+      while (row >= 0 && row < height && column >= 0 && column < width) {
+        const target = row * width + column;
         if (next[target] === "empty") next[target] = "seed";
         row += direction.dr;
         column += direction.dc;
@@ -109,7 +129,7 @@ export default function Home() {
     }
   }
 
-  if (!size) {
+  if (!width || !height) {
     return (
       <main className="setup-page">
         <section className="setup-card">
@@ -119,14 +139,22 @@ export default function Home() {
           <p className="intro">Засейте всё поле раньше, чем ветер успеет проверить восемь сторон света.</p>
 
           <div className="size-picker">
-            <label htmlFor="board-size">Размер квадратного поля</label>
-            <div className="size-control">
-              <button type="button" onClick={() => setSizeInput((value) => Math.max(3, value - 1))} aria-label="Уменьшить поле">−</button>
-              <div><input id="board-size" type="number" min="3" max="20" value={sizeInput} onChange={(event) => setSizeInput(Number(event.target.value))} /><span>× {Math.min(20, Math.max(3, sizeInput || 7))}</span></div>
-              <button type="button" onClick={() => setSizeInput((value) => Math.min(20, value + 1))} aria-label="Увеличить поле">+</button>
+            <span className="size-label">Размер поля</span>
+            <div className="dimension-grid">
+              <label className="dimension-field" htmlFor="board-width">
+                <span>Ширина</span>
+                <input id="board-width" type="number" min="3" max="20" value={widthInput} onChange={(event) => setWidthInput(Number(event.target.value))} />
+                <small>клеток</small>
+              </label>
+              <span className="dimension-times" aria-hidden="true">×</span>
+              <label className="dimension-field" htmlFor="board-height">
+                <span>Высота</span>
+                <input id="board-height" type="number" min="3" max="20" value={heightInput} onChange={(event) => setHeightInput(Number(event.target.value))} />
+                <small>клеток</small>
+              </label>
             </div>
             <div className="presets" aria-label="Готовые размеры поля">
-              {[5, 7, 9].map((preset) => <button className={sizeInput === preset ? "active" : ""} type="button" key={preset} onClick={() => setSizeInput(preset)}>{preset} × {preset}</button>)}
+              {[[5, 5], [8, 6], [10, 8]].map(([presetWidth, presetHeight]) => <button className={widthInput === presetWidth && heightInput === presetHeight ? "active" : ""} type="button" key={`${presetWidth}-${presetHeight}`} onClick={() => { setWidthInput(presetWidth); setHeightInput(presetHeight); }}>{presetWidth} × {presetHeight}</button>)}
             </div>
           </div>
 
@@ -144,17 +172,17 @@ export default function Home() {
   return (
     <main className="game-page">
       <header className="game-header">
-        <button className="wordmark" type="button" onClick={() => setSize(null)} aria-label="Вернуться к выбору размера"><span>✺</span> Одуванчик и ветер</button>
+        <button className="wordmark" type="button" onClick={() => { setWidth(null); setHeight(null); }} aria-label="Вернуться к выбору размера"><span>✺</span> Одуванчик и ветер</button>
         <div className="header-actions">
-          <span className="board-size-label">Поле {size} × {size}</span>
-          <button className="text-button" type="button" onClick={() => startGame(size)}>Начать заново</button>
+          <span className="board-size-label">Поле {width} × {height}</span>
+          <button className="text-button" type="button" onClick={() => startGame(width, height)}>Начать заново</button>
         </div>
       </header>
 
       <div className="game-layout">
-        <section className="board-panel" aria-label={`Игровое поле ${size} на ${size}`}>
-          <div className="board-wrap">
-            <div className="board" style={{ gridTemplateColumns: `repeat(${size}, 1fr)` }}>
+        <section className="board-panel" aria-label={`Игровое поле ${width} на ${height}`}>
+          <div className="board-wrap" style={{ "--board-columns": width, "--board-rows": height } as React.CSSProperties}>
+            <div className="board" style={{ gridTemplateColumns: `repeat(${width}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${height}, minmax(0, 1fr))` }}>
               {cells.map((cell, index) => (
                 <button
                   className={`cell ${cell}`}
@@ -162,7 +190,7 @@ export default function Home() {
                   key={index}
                   onClick={() => plant(index)}
                   disabled={cell !== "empty" || turn !== "dandelion" || Boolean(winner)}
-                  aria-label={`Строка ${Math.floor(index / size) + 1}, столбец ${(index % size) + 1}: ${cell === "empty" ? "пусто" : cell === "flower" ? "одуванчик" : "семя"}`}
+                  aria-label={`Строка ${Math.floor(index / width) + 1}, столбец ${(index % width) + 1}: ${cell === "empty" ? "пусто" : cell === "flower" ? "одуванчик" : "семя"}`}
                 >
                   {cell === "flower" && <span className="flower-mark" aria-hidden="true">✺</span>}
                   {cell === "seed" && <span className="seed-mark" aria-hidden="true">•</span>}
@@ -187,8 +215,8 @@ export default function Home() {
             <div className="result-card">
               <p>{winner === "dandelion" ? "На поле не осталось ни одной пустой клетки." : "Все направления использованы, но поле не успело зарасти."}</p>
               <div className="result-stat"><strong>{cells.length - emptyCount}</strong><span>из {cells.length}<br />клеток занято</span></div>
-              <button className="primary-button" type="button" onClick={() => startGame(size)}>Сыграть ещё <span aria-hidden="true">↻</span></button>
-              <button className="secondary-button" type="button" onClick={() => setSize(null)}>Изменить поле</button>
+              <button className="primary-button" type="button" onClick={() => startGame(width, height)}>Сыграть ещё <span aria-hidden="true">↻</span></button>
+              <button className="secondary-button" type="button" onClick={() => { setWidth(null); setHeight(null); }}>Изменить поле</button>
             </div>
           ) : (
             <>
@@ -207,7 +235,7 @@ export default function Home() {
                       disabled={turn !== "wind" || used}
                       aria-label={`${direction.label}${used ? ", уже использовано" : ""}`}
                       title={direction.label}
-                    ><span>{direction.arrow}</span><small>{direction.short}</small></button>
+                    ><span className="compass-arrow" style={{ transform: `rotate(${DIRECTION_ANGLES[direction.id]}deg)` }} aria-hidden="true" /><small>{direction.short}</small></button>
                   );
                 })}
                 <div className="compass-center" aria-hidden="true"><span>≈</span><small>ветер</small></div>
