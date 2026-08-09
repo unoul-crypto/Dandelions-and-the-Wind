@@ -24,6 +24,8 @@ test("server-renders the game setup", async () => {
   assert.match(html, /Одуванчик/);
   assert.match(html, /ветер/i);
   assert.match(html, /Начать игру/);
+  assert.match(html, /Правила партии/);
+  assert.match(html, /Дальность семян/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
@@ -40,8 +42,14 @@ test("contains all eight wind directions and both win conditions", async () => {
   assert.match(page, /id="board-height"/);
   assert.match(page, /gridTemplateRows/);
   assert.match(page, /className="compass-arrow"/);
+  assert.match(page, /id="plant-on-seed"/);
+  assert.match(page, /id="seed-range"/);
+  assert.match(page, /id="max-blows"/);
+  assert.match(page, /id="required-blows"/);
+  assert.match(page, /requestedSeedRange === null/);
+  assert.match(page, /className="direction-count"/);
   assert.match(page, /remaining === 0/);
-  assert.match(page, /nextUsed\.length === DIRECTIONS\.length/);
+  assert.match(page, /DIRECTIONS\.every/);
   assert.match(layout, /lang="ru"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
