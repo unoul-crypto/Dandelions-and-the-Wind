@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Cell = "empty" | "flower" | "seed";
 type Turn = "dandelion" | "wind";
 type Winner = "dandelion" | "wind" | null;
+type GameMode = "self" | "human-dandelion" | "human-wind";
 
 type GameSettings = {
   allowPlantOnSeed: boolean;
@@ -56,6 +57,7 @@ const createBoard = (width: number, height: number): Cell[] =>
   Array(width * height).fill("empty");
 
 export default function Home() {
+  const [gameModeInput, setGameModeInput] = useState<GameMode>("self");
   const [widthInput, setWidthInput] = useState(7);
   const [heightInput, setHeightInput] = useState(7);
   const [allowPlantOnSeedInput, setAllowPlantOnSeedInput] = useState(false);
@@ -65,6 +67,7 @@ export default function Home() {
   const [width, setWidth] = useState<number | null>(null);
   const [height, setHeight] = useState<number | null>(null);
   const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
+  const [gameMode, setGameMode] = useState<GameMode | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [turn, setTurn] = useState<Turn>("dandelion");
   const [usedDirections, setUsedDirections] = useState<string[]>([]);
@@ -75,7 +78,7 @@ export default function Home() {
   const flowerCount = useMemo(() => cells.filter((cell) => cell === "flower").length, [cells]);
   const seedCount = cells.length - emptyCount - flowerCount;
 
-  function startGame(nextWidth = widthInput, nextHeight = heightInput, nextSettings?: GameSettings | null) {
+  function startGame(nextWidth = widthInput, nextHeight = heightInput, nextSettings?: GameSettings | null, nextMode = gameMode ?? gameModeInput) {
     const safeWidth = clampDimension(nextWidth);
     const safeHeight = clampDimension(nextHeight);
     const safeMaxBlows = clampRuleValue(nextSettings?.maxBlows ?? maxBlowsInput);
@@ -97,6 +100,8 @@ export default function Home() {
     setWidth(safeWidth);
     setHeight(safeHeight);
     setGameSettings(safeSettings);
+    setGameMode(nextMode);
+    setGameModeInput(nextMode);
     setCells(createBoard(safeWidth, safeHeight));
     setTurn("dandelion");
     setUsedDirections([]);
@@ -104,7 +109,7 @@ export default function Home() {
     setLastAction("Выберите свободную клетку для первого одуванчика.");
   }
 
-  function plant(index: number) {
+  const plant = useCallback((index: number) => {
     const canPlantHere = cells[index] === "empty" || (cells[index] === "seed" && gameSettings?.allowPlantOnSeed);
     if (!width || !height || winner || turn !== "dandelion" || !canPlantHere) return;
 
@@ -121,9 +126,9 @@ export default function Home() {
 
     setTurn("wind");
     setLastAction("Одуванчик посажен. Теперь выберите направление ветра.");
-  }
+  }, [cells, gameSettings, height, turn, width, winner]);
 
-  function blow(direction: Direction) {
+  const blow = useCallback((direction: Direction) => {
     if (!width || !height || !gameSettings || winner || turn !== "wind") return;
     const previousBlows = usedDirections.filter((id) => id === direction.id).length;
     if (previousBlows >= gameSettings.maxBlows) return;
@@ -162,7 +167,89 @@ export default function Home() {
       setTurn("dandelion");
       setLastAction(`Ветер подул на ${direction.label.toLowerCase()}. Посадите новый одуванчик.`);
     }
-  }
+  }, [cells, gameSettings, height, turn, usedDirections, width, winner]);
+
+  const isAiTurn = !winner && (
+    (gameMode === "human-dandelion" && turn === "wind") ||
+    (gameMode === "human-wind" && turn === "dandelion")
+  );
+
+  useEffect(() => {
+    if (!isAiTurn || !width || !height || !gameSettings) return;
+
+    const timer = window.setTimeout(() => {
+      if (turn === "dandelion") {
+        const candidates = cells
+          .map((cell, index) => ({ cell, index }))
+          .filter(({ cell }) => cell === "empty" || (cell === "seed" && gameSettings.allowPlantOnSeed));
+
+        let bestIndex = candidates[0]?.index ?? -1;
+        let bestScore = Number.NEGATIVE_INFINITY;
+        for (const candidate of candidates) {
+          const row = Math.floor(candidate.index / width);
+          const column = candidate.index % width;
+          let score = candidate.cell === "empty" ? 1000 : 0;
+
+          for (const direction of DIRECTIONS) {
+            const blowCount = usedDirections.filter((id) => id === direction.id).length;
+            if (blowCount >= gameSettings.maxBlows) continue;
+            let nextRow = row + direction.dr;
+            let nextColumn = column + direction.dc;
+            let distance = 0;
+            while (nextRow >= 0 && nextRow < height && nextColumn >= 0 && nextColumn < width && (gameSettings.seedRange === null || distance < gameSettings.seedRange)) {
+              if (cells[nextRow * width + nextColumn] === "empty") score += 1;
+              nextRow += direction.dr;
+              nextColumn += direction.dc;
+              distance += 1;
+            }
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestIndex = candidate.index;
+          }
+        }
+        if (bestIndex >= 0) plant(bestIndex);
+      } else {
+        let bestDirection: Direction | null = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+
+        for (const direction of DIRECTIONS) {
+          const blowCount = usedDirections.filter((id) => id === direction.id).length;
+          if (blowCount >= gameSettings.maxBlows) continue;
+          let newSeeds = 0;
+          const reached = new Set<number>();
+
+          cells.forEach((cell, index) => {
+            if (cell !== "flower") return;
+            let row = Math.floor(index / width) + direction.dr;
+            let column = (index % width) + direction.dc;
+            let distance = 0;
+            while (row >= 0 && row < height && column >= 0 && column < width && (gameSettings.seedRange === null || distance < gameSettings.seedRange)) {
+              const target = row * width + column;
+              if (cells[target] === "empty" && !reached.has(target)) {
+                reached.add(target);
+                newSeeds += 1;
+              }
+              row += direction.dr;
+              column += direction.dc;
+              distance += 1;
+            }
+          });
+
+          const needsProgress = blowCount < gameSettings.requiredBlows;
+          const score = newSeeds + (needsProgress ? 0 : 10000);
+          if (score < bestScore) {
+            bestScore = score;
+            bestDirection = direction;
+          }
+        }
+        if (bestDirection) blow(bestDirection);
+      }
+    }, 650);
+
+    return () => window.clearTimeout(timer);
+  }, [blow, cells, gameSettings, height, isAiTurn, plant, turn, usedDirections, width]);
 
   if (!width || !height) {
     return (
@@ -172,6 +259,21 @@ export default function Home() {
           <p className="eyebrow">Игра на двоих — за одним экраном</p>
           <h1>Одуванчик<br />и ветер</h1>
           <p className="intro">Засейте всё поле раньше, чем ветер успеет проверить восемь сторон света.</p>
+
+          <div className="mode-picker">
+            <span className="size-label">Кто играет</span>
+            <div className="mode-grid">
+              {([
+                ["self", "За обоих", "Без ИИ"],
+                ["human-dandelion", "Я — одуванчик", "ИИ — ветер"],
+                ["human-wind", "Я — ветер", "ИИ — одуванчик"],
+              ] as const).map(([mode, title, subtitle]) => (
+                <button type="button" key={mode} className={gameModeInput === mode ? "active" : ""} onClick={() => setGameModeInput(mode)} aria-pressed={gameModeInput === mode}>
+                  <strong>{title}</strong><small>{subtitle}</small>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="setup-options">
             <div className="size-picker">
@@ -227,7 +329,7 @@ export default function Home() {
         <button className="wordmark" type="button" onClick={() => { setWidth(null); setHeight(null); }} aria-label="Вернуться к выбору размера"><span>✺</span> Одуванчик и ветер</button>
         <div className="header-actions">
           <span className="board-size-label">Поле {width} × {height}</span>
-          <button className="text-button" type="button" onClick={() => startGame(width, height, gameSettings)}>Начать заново</button>
+          <button className="text-button" type="button" onClick={() => startGame(width, height, gameSettings, gameMode ?? gameModeInput)}>Начать заново</button>
         </div>
       </header>
 
@@ -244,7 +346,7 @@ export default function Home() {
                   type="button"
                   key={index}
                   onClick={() => plant(index)}
-                  disabled={!canPlantHere || turn !== "dandelion" || Boolean(winner)}
+                  disabled={!canPlantHere || turn !== "dandelion" || Boolean(winner) || isAiTurn}
                   aria-label={`Строка ${Math.floor(index / width) + 1}, столбец ${(index % width) + 1}: ${cell === "empty" ? "пусто" : cell === "flower" ? "одуванчик" : "семя"}`}
                 >
                   {cell === "flower" && <span className="flower-mark" aria-hidden="true">✺</span>}
@@ -265,19 +367,19 @@ export default function Home() {
         <aside className={`control-panel ${winner ? "finished" : ""}`}>
           <div className="turn-heading" aria-live="polite">
             <span className={`turn-icon ${winner ?? turn}`} aria-hidden="true">{winner === "wind" || (!winner && turn === "wind") ? "≈" : "✺"}</span>
-            <div><p>{winner ? "Игра окончена" : `Ход ${usedDirections.length * 2 + (turn === "wind" ? 2 : 1)}`}</p><h2>{currentTitle}</h2></div>
+            <div><p>{winner ? "Игра окончена" : isAiTurn ? "ИИ думает…" : `Ход ${usedDirections.length * 2 + (turn === "wind" ? 2 : 1)}`}</p><h2>{currentTitle}</h2></div>
           </div>
 
           {winner ? (
             <div className="result-card">
               <p>{winner === "dandelion" ? "На поле не осталось ни одной пустой клетки." : "Все направления использованы, но поле не успело зарасти."}</p>
               <div className="result-stat"><strong>{cells.length - emptyCount}</strong><span>из {cells.length}<br />клеток занято</span></div>
-              <button className="primary-button" type="button" onClick={() => startGame(width, height, gameSettings)}>Сыграть ещё <span aria-hidden="true">↻</span></button>
+              <button className="primary-button" type="button" onClick={() => startGame(width, height, gameSettings, gameMode ?? gameModeInput)}>Сыграть ещё <span aria-hidden="true">↻</span></button>
               <button className="secondary-button" type="button" onClick={() => { setWidth(null); setHeight(null); }}>Изменить поле</button>
             </div>
           ) : (
             <>
-              <p className="instruction">{turn === "dandelion" ? `Нажмите на ${gameSettings?.allowPlantOnSeed ? "свободную клетку или клетку с семенем" : "любую свободную клетку"} — там вырастет новый одуванчик.` : "Выберите направление, которое ещё не достигло своего лимита. Семена полетят от всех одуванчиков."}</p>
+              <p className="instruction">{isAiTurn ? "Соперник оценивает поле и выбирает ход." : turn === "dandelion" ? `Нажмите на ${gameSettings?.allowPlantOnSeed ? "свободную клетку или клетку с семенем" : "любую свободную клетку"} — там вырастет новый одуванчик.` : "Выберите направление, которое ещё не достигло своего лимита. Семена полетят от всех одуванчиков."}</p>
 
               <div className={`compass ${turn !== "wind" ? "inactive" : ""}`} aria-label="Направления ветра">
                 {DIRECTIONS.map((direction) => {
@@ -291,7 +393,7 @@ export default function Home() {
                       style={{ gridRow: direction.row, gridColumn: direction.column }}
                       className={completed ? "complete" : blowCount > 0 ? "used" : ""}
                       onClick={() => blow(direction)}
-                      disabled={turn !== "wind" || atLimit}
+                      disabled={turn !== "wind" || atLimit || isAiTurn}
                       aria-label={`${direction.label}: ветер дул ${blowCount} из ${gameSettings?.requiredBlows ?? 1} необходимых раз; лимит ${gameSettings?.maxBlows ?? 1}`}
                       title={direction.label}
                     ><span className="compass-arrow" style={{ transform: `rotate(${DIRECTION_ANGLES[direction.id]}deg)` }} aria-hidden="true" /><small>{direction.short}</small><b className="direction-count">{blowCount}/{gameSettings?.requiredBlows ?? 1}</b></button>
@@ -304,7 +406,7 @@ export default function Home() {
                 <div><span>Готово направлений</span><strong>{DIRECTIONS.filter((direction) => usedDirections.filter((id) => id === direction.id).length >= (gameSettings?.requiredBlows ?? 1)).length} / 8</strong></div>
                 <div className="progress-track"><i style={{ width: `${DIRECTIONS.filter((direction) => usedDirections.filter((id) => id === direction.id).length >= (gameSettings?.requiredBlows ?? 1)).length * 12.5}%` }} /></div>
               </div>
-              <div className="rules-summary"><span>Семена: <b>{gameSettings?.seedRange ?? "до края"}</b></span><span>Лимит: <b>{gameSettings?.maxBlows}</b></span><span>На семя: <b>{gameSettings?.allowPlantOnSeed ? "да" : "нет"}</b></span></div>
+              <div className="rules-summary"><span>Режим: <b>{gameMode === "self" ? "за обоих" : gameMode === "human-dandelion" ? "вы — одуванчик" : "вы — ветер"}</b></span><span>Семена: <b>{gameSettings?.seedRange ?? "до края"}</b></span><span>Лимит: <b>{gameSettings?.maxBlows}</b></span><span>На семя: <b>{gameSettings?.allowPlantOnSeed ? "да" : "нет"}</b></span></div>
             </>
           )}
 

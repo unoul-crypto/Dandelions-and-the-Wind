@@ -26,6 +26,9 @@ test("server-renders the game setup", async () => {
   assert.match(html, /Начать игру/);
   assert.match(html, /Правила партии/);
   assert.match(html, /Дальность семян/);
+  assert.match(html, /Кто играет/);
+  assert.match(html, /Я — одуванчик/);
+  assert.match(html, /Я — ветер/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/);
 });
 
@@ -48,6 +51,9 @@ test("contains all eight wind directions and both win conditions", async () => {
   assert.match(page, /id="required-blows"/);
   assert.match(page, /requestedSeedRange === null/);
   assert.match(page, /className="direction-count"/);
+  assert.match(page, /type GameMode = "self" \| "human-dandelion" \| "human-wind"/);
+  assert.match(page, /const isAiTurn/);
+  assert.match(page, /Соперник оценивает поле/);
   assert.match(page, /remaining === 0/);
   assert.match(page, /DIRECTIONS\.every/);
   assert.match(layout, /lang="ru"/);
